@@ -30,12 +30,12 @@
 
 typedef struct RipEntry		//RIP报文表项的结构体
 {
-	unsigned short usFamily;
-	unsigned short usTag;
-	struct in_addr stAddr;
-	struct in_addr stPrefixLen;
-	struct in_addr stNexthop;
-	unsigned int uiMetric;
+	unsigned short usFamily; //地址族标识
+	unsigned short usTag; //路由标记
+	struct in_addr stAddr;	//ip地址
+	struct in_addr stPrefixLen; //子网掩码
+	struct in_addr stNexthop;	//下一跳地址
+	unsigned int uiMetric;	//度量值metric
 }TRipEntry;
 
 typedef struct  RipPacket	//RIP报文的头部
@@ -50,9 +50,9 @@ typedef struct  RipPacket	//RIP报文的头部
 typedef struct RouteEntry	//自己构建RIP路由表
 {
 	struct RouteEntry *pstNext;
-	struct in_addr stIpPrefix; 
-	unsigned int  uiPrefixLen;
-	struct in_addr stNexthop;
+	struct in_addr stIpPrefix; //ip地址
+	unsigned int  uiPrefixLen;	//掩码
+	struct in_addr stNexthop;	//下一跳
 	unsigned int   uiMetric;
 	char  *pcIfname;
 }TRtEntry;

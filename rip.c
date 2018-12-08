@@ -1,26 +1,48 @@
 #include "rip.h"
 
 TRtEntry *g_pstRouteEntry = NULL;
+TRipPkt *requestpkt = NULL;
 
 char *pcLocalAddr[10]={};//存储本地接口ip地址
 char *pcLocalName[10]={};//存储本地接口的接口名
 
+
+//简易版本，全部发送，数据组织使用一些奇怪的东西
+//注意锁机制的使用
+
+
+
 void requestpkt_Encapsulate()
 {
 	//封装请求包  command =1,version =2,family =0,metric =16
-	
+	TRtEntry *p = g_pstRouteEntry;
+	int cnt = 0;
+	while (p != NULL) {
+		int index = cnt % RIP_MAX_ENTRY;
+		if (index == 0) {
+			requestpkt = (TRipPkt *)malloc(sizeof(TRipPkt));
+			requestpkt->ucCommand = 1;
+			requestpkt->ucVersion = RIP_VERSION;
+			requestpkt->usZero = 0;
+		}
+		//封装到RIP报文表项的结构体
+		TRipEntry *ripentry = (TRipEntry *)malloc(sizeof(TRipEntry));
+		ripentry->stAddr = p->stIpPrefix;
+		ripentry->stNexthop = p->stNexthop;
+		ripentry->stPrefixLen.s_addr = (0xffffffff >> (32 - p->uiPrefixLen)) << (32 - p->uiPrefixLen);
+		ripentry->uiMetric = RIP_INFINITY;
+		ripentry->usFamily = 0;
+
+		//封装好的rip报文
+		requestpkt->RipEntries[index] = *ripentry;
+		cnt ++;
+		p = p->pstNext;
+	}
 }
 
 
 /*****************************************************
 *Func Name:    rippacket_Receive  
-*Description:  接收rip报文
-*Input:        
-*	 
-*Output: 
-*
-*Ret  ：
-*
 *******************************************************/
 void rippacket_Receive()
 {
@@ -63,10 +85,6 @@ void rippacket_Receive()
 *Description:  向接收源发送响应报文
 *Input:        
 *	  1.stSourceIp    ：接收源的ip地址，用于发送目的ip设置
-*Output: 
-*
-*Ret  ：
-*
 *******************************************************/
 void rippacket_Send(struct in_addr stSourceIp)
 {
@@ -103,53 +121,57 @@ void rippacket_Send(struct in_addr stSourceIp)
 *Description:  组播请求报文
 *Input:        
 *	  1.pcLocalAddr   ：本地ip地址
-*Output: 
-*
-*Ret  ：
-*
 *******************************************************/
 void rippacket_Multicast(char *pcLocalAddr)
 {
-	//本地ip设置
-	
-	//目的ip设置
+	int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (fd < 0) {
+		perror("Opening datagram socket error");
+        exit(1);
+	} else {
+		printf("Opening datagram socket....OK.\n");
+	}
 
-	/*防止绑定地址冲突，仅供参考
+	//防止绑定地址冲突，仅供参考
 	//设置地址重用
 	int  iReUseddr = 1;
-	if (setsockopt(iSendfd,SOL_SOCKET ,SO_REUSEADDR,(const char*)&iReUseddr,sizeof(iReUseddr))<0)
-	{
+	if (setsockopt(fd,SOL_SOCKET ,SO_REUSEADDR,(const char*)&iReUseddr,sizeof(iReUseddr))<0) {
 		perror("setsockopt\n");
 		return ;
 	}
 	//设置端口重用
 	int  iReUsePort = 1;
-	if (setsockopt(iSendfd,SOL_SOCKET ,SO_REUSEPORT,(const char*)&iReUsePort,sizeof(iReUsePort))<0)
-	{
+	if (setsockopt(fd,SOL_SOCKET ,SO_REUSEPORT,(const char*)&iReUsePort,sizeof(iReUsePort))<0){
 		perror("setsockopt\n");
 		return ;
 	}
-	//把本地地址加入到组播中 	
-	*/
 	
-	
-	/*
-	防止组播回环的参考代码	
-	
-	int iSockfd;//仅是定义，需自己创建socket
-	#if 1
+	//防止组播回环的参考代码	
 	//0 禁止回环  1开启回环 
 	int loop = 0;
-	int err = setsockopt(iSockfd,IPPROTO_IP, IP_MULTICAST_LOOP,&loop, sizeof(loop));
-	if(err < 0)
-	{
+	int err = setsockopt(fd,IPPROTO_IP, IP_MULTICAST_LOOP,&loop, sizeof(loop));
+	if(err < 0) {
 		perror("setsockopt():IP_MULTICAST_LOOP");
 	}
-	#endif
-	*/
 
-	//创建并绑定socket
+	//绑定socket
+	struct sockaddr_in router;
+	router.sin_family = AF_INET;
+	router.sin_port = htons(RIP_PORT);
+	router.sin_addr.s_addr = inet_addr(RIP_GROUP);
+	if(setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, pcLocalAddr, sizeof(pcLocalAddr)) < 0) {
+    	perror("Setting local interface error");
+    } else printf("Setting the local interface...OK\n");
 
+	int result;
+	char buf[RIP_MAX_PACKET];
+	memcpy(buf, &requestpkt, sizeof(TRipPkt));
+	if ((result = sendto(fd, buf, sizeof(buf), 0, (struct sockaddr_in*)&router, sizeof(router))) == -1) {
+		printf("send error!\n");
+	} else {
+		printf("send succeed! packet len:%d\n",result);
+	}
+	close(fd);
 	//发送
 	return;
 }
@@ -159,10 +181,6 @@ void rippacket_Multicast(char *pcLocalAddr)
 *Description:  响应request报文
 *Input:        
 *	  1.stSourceIp   ：接收源的ip地址
-*Output: 
-*
-*Ret  ：
-*
 *******************************************************/
 void request_Handle(struct in_addr stSourceIp)
 {
@@ -177,10 +195,6 @@ void request_Handle(struct in_addr stSourceIp)
 *Description:  响应response报文
 *Input:        
 *	  1.stSourceIp   ：接收源的ip地址
-*Output: 
-*
-*Ret  ：
-*
 *******************************************************/
 void response_Handle(struct in_addr stSourceIp)
 {
@@ -194,10 +208,6 @@ void response_Handle(struct in_addr stSourceIp)
 *Input:        
 *	  1.uiCmd        ：插入命令
 *	  2.pstRtEntry   ：路由信息
-*Output: 
-*
-*Ret  ：
-*
 *******************************************************/
 void route_SendForward(unsigned int uiCmd,TRtEntry *pstRtEntry)
 {
@@ -215,6 +225,8 @@ void rippacket_Update()
 void ripdaemon_Start()
 {
 	//创建更新线程，30s更新一次,向组播地址更新Update包
+	
+
 
 	//封装请求报文，并组播
     
@@ -226,7 +238,28 @@ void ripdaemon_Start()
 void routentry_Insert()
 {
 	//将本地接口表添加到rip路由表里
-	
+	int i = 0;
+	TRtEntry *p = g_pstRouteEntry;
+	while (1) {
+		if (i < 10 && pcLocalAddr[i] != NULL) {
+			TRtEntry* new = (TRtEntry*)malloc(sizeof(TRtEntry));
+			new->pcIfname = pcLocalName[i];
+			new->uiPrefixLen = 24;
+			new->uiMetric = 0;
+			new->stIpPrefix.s_addr = inet_addr(pcLocalAddr[i]);
+			new->pstNext = NULL;
+
+			if (g_pstRouteEntry == NULL) {
+				g_pstRouteEntry = new;
+				p = g_pstRouteEntry;
+			} else {
+				g_pstRouteEntry->pstNext = new;
+				g_pstRouteEntry = g_pstRouteEntry->pstNext;
+			}
+			i++;
+		} else break;
+	}
+	g_pstRouteEntry = p;
 	return ;
 }
 
@@ -273,7 +306,10 @@ int main(int argc,char* argv[])
 		return -1;
 	}
 	localinterf_GetInfo();
+
+	//将本地接口表添加到rip路由表里
 	routentry_Insert();
+
 	ripdaemon_Start();
 	return 0;
 }
