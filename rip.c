@@ -122,7 +122,7 @@ void rippacket_Send(struct in_addr stSourceIp)
 *Input:        
 *	  1.pcLocalAddr   ：本地ip地址
 *******************************************************/
-void rippacket_Multicast(char *pcLocalAddr)
+void rippacket_Multicast(struct in_addr pcLocalAddr)
 {
 	int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (fd < 0) {
@@ -159,7 +159,7 @@ void rippacket_Multicast(char *pcLocalAddr)
 	router.sin_family = AF_INET;
 	router.sin_port = htons(RIP_PORT);
 	router.sin_addr.s_addr = inet_addr(RIP_GROUP);
-	if(setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, pcLocalAddr, sizeof(pcLocalAddr)) < 0) {
+	if(setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, (char *)&pcLocalAddr, sizeof(pcLocalAddr)) < 0) {
     	perror("Setting local interface error");
     } else printf("Setting the local interface...OK\n");
 
@@ -230,7 +230,8 @@ void ripdaemon_Start()
 
 	//封装请求报文，并组播
 	requestpkt_Encapsulate();
-	for (int i = 0; i < 10; i++) {
+	int i = 0;
+	for (i = 0; i < 10; i++) {
 		if (pcLocalAddr[i] != NULL) {
 			rippacket_Multicast(pcLocalAddr);
 		} else break;
