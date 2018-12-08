@@ -229,6 +229,12 @@ void ripdaemon_Start()
 
 
 	//封装请求报文，并组播
+	requestpkt_Encapsulate();
+	for (int i = 0; i < 10; i++) {
+		if (pcLocalAddr[i] != NULL) {
+			rippacket_Multicast(pcLocalAddr);
+		} else break;
+	}
     
 	//接收rip报文
 
