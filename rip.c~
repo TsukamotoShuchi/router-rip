@@ -6,6 +6,7 @@ TRipPkt *requestpkt = NULL;
 char *pcLocalAddr[10]={};//存储本地接口ip地址
 char *pcLocalName[10]={};//存储本地接口的接口名
 
+TRipPkt *recvpkt = NULL;
 
 //简易版本，全部发送，数据组织使用一些奇怪的东西
 //注意锁机制的使用
@@ -47,32 +48,52 @@ void requestpkt_Encapsulate()
 void rippacket_Receive()
 {
 	//接收ip设置
-
-	//创建并绑定socket
+	int sd = socket(AF_INET, SOCK_DGRAM, 0);
+	if(sd < 0){
+        perror("Opening datagram socket error when receiving");
+    } else printf("Opening datagram socket....OK.\n");
 	
-	/*防止绑定地址冲突，仅供参考
+	//防止绑定地址冲突
 	//设置地址重用
 	int  iReUseddr = 1;
-	if (setsockopt(iSendfd,SOL_SOCKET ,SO_REUSEADDR,(const char*)&iReUseddr,sizeof(iReUseddr))<0)
-	{
+	if (setsockopt(sd, SOL_SOCKET ,SO_REUSEADDR,(const char*)&iReUseddr,sizeof(iReUseddr))<0){
 		perror("setsockopt\n");
 		return ;
 	}
 	//设置端口重用
 	int  iReUsePort = 1;
-	if (setsockopt(iSendfd,SOL_SOCKET ,SO_REUSEPORT,(const char*)&iReUsePort,sizeof(iReUsePort))<0)
-	{
+	if (setsockopt(sd,SOL_SOCKET ,SO_REUSEPORT,(const char*)&iReUsePort,sizeof(iReUsePort))<0){
 		perror("setsockopt\n");
 		return ;
 	}
-	//把本地地址加入到组播中 	
-	*/
-	while(1)
-	{
+	//把本地地址加入到组播
+	struct sockaddr_in localSock;
+	memset((char *) &localSock, 0, sizeof(localSock));
+	localSock.sin_family = AF_INET;
+    localSock.sin_port = htons(RIP_PORT);
+    localSock.sin_addr.s_addr = INADDR_ANY;
+	if(bind(sd, (struct sockaddr*)&localSock, sizeof(localSock))){
+        perror("Binding datagram socket error");
+        close(sd);
+        exit(1);
+    } else printf("Binding datagram socket...OK.\n");
 
+	listen(sd, 5);
+
+	recvpkt = (TRipPkt*)malloc(sizeof(TRipPkt));
+	memset(recvpkt,0,sizeof(TRipPkt));
+	int cnt = 0;
+	while(1) {
 		//接收rip报文   存储接收源ip地址
 		//判断command类型，request 或 response
-		
+		int conn_fd = accept(sd, (struct sockaddr *)NULL, NULL);
+		int ret = recv(conn_fd, recvpkt, sizeof(TRipPkt), 0);
+		close(conn_fd);
+		if (ret > 0) {
+			printf("cnt: %d", cnt++);
+			printf("ucCammand:%s", recvpkt->ucCommand);
+			printf("ucVersion:%s", recvpkt->ucVersion);
+		}
 		//接收到的信息存储到全局变量里，方便request_Handle和response_Handle处理
 		
 	}
@@ -126,7 +147,7 @@ void rippacket_Multicast(char* pcLocalAddr)
 {
 	int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (fd < 0) {
-		perror("Opening datagram socket error");
+		perror("Opening datagram socket error when multicasting");
         exit(1);
 	} else {
 		printf("Opening datagram socket....OK.\n");
@@ -159,7 +180,7 @@ void rippacket_Multicast(char* pcLocalAddr)
 	router.sin_family = AF_INET;
 	router.sin_port = htons(RIP_PORT);
 	router.sin_addr.s_addr = inet_addr(RIP_GROUP);
-	if(setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, &pcLocalAddr, sizeof(pcLocalAddr)) < 0) {
+	if(setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, pcLocalAddr, sizeof(pcLocalAddr)) < 0) {
     	perror("Setting local interface error");
     } else printf("Setting the local interface...OK\n");
 
@@ -238,6 +259,7 @@ void ripdaemon_Start()
 	}
     
 	//接收rip报文
+	rippacket_Receive();
 
 	return;
 }
